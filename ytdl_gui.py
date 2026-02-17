@@ -220,10 +220,27 @@ class App(tk.Tk):
             self._log(f"✘ yt-dlp nicht gefunden/ausführbar: {YT_DLP}\n")
             return
 
-        # ffmpeg
         if not is_tool_available(FFMPEG):
-            self._log("✘ ffmpeg nicht gefunden (bitte installieren und in PATH bringen)\n")
-            return
+                self._log("✘ ffmpeg nicht gefunden.\n")
+            
+                if sys.platform.startswith("win"):
+                    msg = (
+                        "FFmpeg ist nicht installiert.\n\n"
+                        "Installiere es unter Windows mit:\n"
+                        "winget install Gyan.FFmpeg\n\n"
+                        "Danach Terminal neu starten."
+                    )
+                else:
+                    msg = (
+                        "FFmpeg ist nicht installiert.\n\n"
+                        "Installiere es unter Linux mit:\n"
+                        "sudo apt install ffmpeg"
+                    )
+            
+                self._log(msg + "\n")
+                messagebox.showerror("FFmpeg fehlt", msg)
+                return
+            
 
         # deno
         if sys.platform.startswith("win"):
