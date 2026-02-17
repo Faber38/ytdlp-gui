@@ -1,0 +1,41 @@
+name: Build binaries (PyInstaller)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+      - run: |
+          pyinstaller --noconsole --onefile ytdl_gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytdlp-gui-linux
+          path: dist/ytdl_gui
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+      - run: |
+          pyinstaller --noconsole --onefile ytdl_gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytdlp-gui-windows
+          path: dist/ytdl_gui.exe
