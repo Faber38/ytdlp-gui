@@ -4,20 +4,49 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import sys
+from pathlib import Path
+
+
+def app_dir() -> Path:
+    """
+    Bei PyInstaller --onefile:
+      - Dateien werden in ein Temp-Verzeichnis entpackt (sys._MEIPASS)
+    Beim normalen Python-Start:
+      - Ordner der .py Datei
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
+
+
+# ------------------------------------------------------------
+# Gebundelte Tools (wenn per PyInstaller --add-binary enthalten)
+# ------------------------------------------------------------
+if sys.platform.startswith("win"):
+    # Windows: ytdl_gui.exe enthält (geplant) deno.exe + yt-dlp.exe
+    DENO = str(app_dir() / "deno.exe")
+    YT_DLP = str(app_dir() / "yt-dlp.exe")
+else:
+    # Linux: optional gebundeltes yt-dlp, ansonsten System
+    DENO = "/usr/local/bin/deno"
+    YT_DLP = str(app_dir() / "yt-dlp")
+
+# Fallback, wenn du das Script lokal startest (ohne Bundle-Dateien)
+if not sys.platform.startswith("win") and not os.path.exists(YT_DLP):
+    YT_DLP = "yt-dlp"
+
+# ffmpeg bleibt System-Tool (groß, nicht bundlen)
+FFMPEG = "ffmpeg"
+
+EJS_MODE = "ejs:npm"
+EXTRACTOR_ARGS = "youtube:player_client=web,-tv,-web_safari,-ios,-android_sdkless"
 
 # ---------------------------
 # Defaults (wie dein Bash-Script)
 # ---------------------------
 DEFAULT_Q = "1080"      # best | 1080 | 720 | 480 | 360 | ...
 DEFAULT_NO_PLAYLIST = True
-
-# Wenn Tools NICHT im PATH sind, hier absolute Pfade setzen:
-YT_DLP = "yt-dlp"       # z.B. "/usr/bin/yt-dlp"
-FFMPEG = "ffmpeg"       # z.B. "/usr/bin/ffmpeg"
-DENO = "/usr/local/bin/deno"  # bei dir wie im Bash-Script
-
-EJS_MODE = "ejs:npm"
-EXTRACTOR_ARGS = "youtube:player_client=web,-tv,-web_safari,-ios,-android_sdkless"
 
 
 def videos_dir() -> str:
@@ -26,6 +55,14 @@ def videos_dir() -> str:
 
 
 def is_tool_available(cmd: str) -> bool:
+    """
+    Prüft, ob ein Tool ausführbar ist:
+    - wenn cmd ein Pfad ist: muss existieren + ausführbar sein
+    - wenn cmd nur Name ist: versuchen wir cmd --version
+    """
+    if os.path.sep in cmd or cmd.endswith(".exe"):
+        return os.path.exists(cmd) and os.access(cmd, os.X_OK)
+
     try:
         subprocess.run([cmd, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         return True
@@ -77,7 +114,9 @@ class App(tk.Tk):
         self.outdir_var = tk.StringVar(value=videos_dir())
 
         self._build_ui()
-        self._log("Hinweis: yt-dlp, ffmpeg und deno müssen installiert sein.\n")
+        self._log("Hinweis: ffmpeg muss installiert sein (System).\n")
+        self._log(f"yt-dlp: {YT_DLP}\n")
+        self._log(f"deno:  {DENO}\n\n")
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
@@ -176,16 +215,27 @@ class App(tk.Tk):
         threading.Thread(target=self._download_worker, daemon=True).start()
 
     def _download_worker(self):
+        # yt-dlp
         if not is_tool_available(YT_DLP):
-            self._log("✘ yt-dlp nicht gefunden (PATH oder YT_DLP anpassen)\n")
-            return
-        if not is_tool_available(FFMPEG):
-            self._log("✘ ffmpeg nicht gefunden (PATH oder FFMPEG anpassen)\n")
-            return
-        if not os.path.exists(DENO) or not os.access(DENO, os.X_OK):
-            self._log(f"✘ deno nicht gefunden/ausführbar unter: {DENO}\n")
+            self._log(f"✘ yt-dlp nicht gefunden/ausführbar: {YT_DLP}\n")
             return
 
+        # ffmpeg
+        if not is_tool_available(FFMPEG):
+            self._log("✘ ffmpeg nicht gefunden (bitte installieren und in PATH bringen)\n")
+            return
+
+        # deno
+        if sys.platform.startswith("win"):
+            if not os.path.exists(DENO):
+                self._log(f"✘ deno.exe fehlt (sollte gebundled sein): {DENO}\n")
+                return
+        else:
+            if not os.path.exists(DENO) or not os.access(DENO, os.X_OK):
+                self._log(f"✘ deno nicht gefunden/ausführbar unter: {DENO}\n")
+                return
+
+        # URL
         url = self.url_var.get().strip()
         if not url:
             try:
