@@ -22,40 +22,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install PyInstaller
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          pip install -r requirements.txt
 
-      - name: Download yt-dlp (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build (onefile)
         run: |
-          curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-          chmod +x yt-dlp
-
-      - name: Download Deno (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile deno.zip
-          Expand-Archive -Path deno.zip -DestinationPath .
-
-      - name: Download yt-dlp (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp.exe"
-
-      - name: Build binary (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          pyinstaller --noconsole --onefile --add-binary "yt-dlp:." ytdl_gui.py
-
-      - name: Build binary (Windows, bundle Deno + yt-dlp into EXE)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          pyinstaller --noconsole --onefile --add-binary "deno.exe;." --add-binary "yt-dlp.exe;." ytdl_gui.py
+          pyinstaller --clean --noconsole --onefile ytdl_gui.py
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
