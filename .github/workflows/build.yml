@@ -23,24 +23,33 @@ jobs:
         with:
           python-version: "3.11"
 
-      # ✅ Wichtig für PySide6/Qt auf GitHub Ubuntu Runnern
+      # (Optional aber oft nötig für PySide6 unter Linux)
       - name: Install Qt Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1 \
-            libegl1 \
+            libxcb-cursor0 \
             libxkbcommon-x11-0 \
-            libdbus-1-3 \
-            libfontconfig1
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libxcb-xinput0
 
       - name: Install dependencies (requirements.txt)
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      # Optional (nur wenn du im Linux-Build das yt-dlp Binary zusätzlich bundeln willst)
+      # ✅ WICHTIG: PyInstaller als Build-Tool immer separat installieren
+      - name: Install PyInstaller
+        run: |
+          python -m pip install pyinstaller==6.11.1
+
+      # Optional (nur wenn du im Linux-Build yt-dlp Binary bundeln willst)
       - name: Download yt-dlp (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -58,7 +67,7 @@ jobs:
       - name: Build binary (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          python -m PyInstaller --noconsole --onefile \
+          pyinstaller --noconsole --onefile \
             --add-binary "yt-dlp:." \
             ytdl_gui.py
 
@@ -66,7 +75,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          python -m PyInstaller --noconsole --onefile `
+          pyinstaller --noconsole --onefile `
             --add-binary "deno.exe;." `
             --add-binary "yt-dlp.exe;." `
             ytdl_gui.py
