@@ -37,20 +37,30 @@ from yt_dlp.utils import DownloadError
 import subprocess
 
 
-def get_git_version():
+APP_VERSION = "v1.1.3"  # <-- hier deine Release-Version pflegen
+
+
+def get_app_version() -> str:
+    """
+    Im Git-Checkout: versucht `git describe`.
+    Im Release-Binary (ohne .git): fällt sauber auf APP_VERSION zurück.
+    """
     try:
-        return (
-            subprocess.check_output(
-                ["git", "describe", "--tags", "--always"], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .strip()
-        )
+        # nur wenn git existiert UND wir in einem repo sind
+        import shutil
+
+        if not shutil.which("git"):
+            return APP_VERSION
+
+        v = subprocess.check_output(
+            ["git", "describe", "--tags", "--always"],
+            cwd=Path(__file__).resolve().parent,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return v or APP_VERSION
     except Exception:
         return APP_VERSION
-
-
-APP_VERSION = get_git_version()
 
 
 # ---------------------------
