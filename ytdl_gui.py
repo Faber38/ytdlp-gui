@@ -60,7 +60,7 @@ def is_tool_available(cmd: str) -> bool:
     - wenn cmd ein Pfad ist: muss existieren + ausführbar sein
     - wenn cmd nur Name ist: versuchen wir cmd --version
     """
-    if os.path.sep in cmd or cmd.endswith(".exe"):
+    if os.path.sep in cmd or cmd.lower().endswith(".exe"):
         return os.path.exists(cmd) and os.access(cmd, os.X_OK)
 
     try:
@@ -98,6 +98,47 @@ def build_format(q: str) -> str:
     if q == "best":
         return "bv*[protocol!=m3u8]+ba/b[protocol!=m3u8]"
     return f"bv*[height<={q}][protocol!=m3u8]+ba/b[height<={q}][protocol!=m3u8]"
+
+
+def _browser_profile_exists(browser: str) -> bool:
+    """
+    Grobe Heuristik: Browserprofil-Verzeichnisse prüfen.
+    Reicht für "geht bei fast allen" ohne Registry-Kram.
+    """
+    appdata = os.environ.get("APPDATA", "")
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+
+    if browser == "firefox":
+        # %APPDATA%\Mozilla\Firefox\Profiles
+        p = Path(appdata) / "Mozilla" / "Firefox" / "Profiles"
+        return p.exists()
+
+    if browser == "chrome":
+        # %LOCALAPPDATA%\Google\Chrome\User Data
+        p = Path(localappdata) / "Google" / "Chrome" / "User Data"
+        return p.exists()
+
+    if browser == "edge":
+        # %LOCALAPPDATA%\Microsoft\Edge\User Data
+        p = Path(localappdata) / "Microsoft" / "Edge" / "User Data"
+        return p.exists()
+
+    return False
+
+
+def pick_cookie_browser() -> str | None:
+    """
+    Liefert den Browser-Namen für yt-dlp --cookies-from-browser,
+    oder None, wenn keiner sinnvoll verfügbar ist.
+    """
+    if sys.platform.startswith("win"):
+        for b in ("chrome", "edge", "firefox"):
+            if _browser_profile_exists(b):
+                return b
+        return None
+
+    # Linux (dein Setup)
+    return "firefox"
 
 
 class App(tk.Tk):
@@ -155,7 +196,7 @@ class App(tk.Tk):
             .grid(row=0, column=2, sticky="w", padx=12)
         ttk.Checkbutton(opt_grid, text="Playlist erlauben", variable=self.playlist_var)\
             .grid(row=0, column=3, sticky="w", padx=12)
-        ttk.Checkbutton(opt_grid, text="Firefox-Cookies verwenden", variable=self.cookies_var)\
+        ttk.Checkbutton(opt_grid, text="Cookies aus Browser", variable=self.cookies_var)\
             .grid(row=0, column=4, sticky="w", padx=12)
 
         # Zielordner
@@ -220,27 +261,27 @@ class App(tk.Tk):
             self._log(f"✘ yt-dlp nicht gefunden/ausführbar: {YT_DLP}\n")
             return
 
+        # ffmpeg (mit sauberer Install-Hilfe)
         if not is_tool_available(FFMPEG):
-                self._log("✘ ffmpeg nicht gefunden.\n")
-            
-                if sys.platform.startswith("win"):
-                    msg = (
-                        "FFmpeg ist nicht installiert.\n\n"
-                        "Installiere es unter Windows mit:\n"
-                        "winget install Gyan.FFmpeg\n\n"
-                        "Danach Terminal neu starten."
-                    )
-                else:
-                    msg = (
-                        "FFmpeg ist nicht installiert.\n\n"
-                        "Installiere es unter Linux mit:\n"
-                        "sudo apt install ffmpeg"
-                    )
-            
-                self._log(msg + "\n")
-                messagebox.showerror("FFmpeg fehlt", msg)
-                return
-            
+            self._log("✘ ffmpeg nicht gefunden.\n")
+
+            if sys.platform.startswith("win"):
+                msg = (
+                    "FFmpeg ist nicht installiert.\n\n"
+                    "Installiere es unter Windows mit:\n"
+                    "winget install Gyan.FFmpeg\n\n"
+                    "Danach Terminal neu starten."
+                )
+            else:
+                msg = (
+                    "FFmpeg ist nicht installiert.\n\n"
+                    "Installiere es unter Linux mit:\n"
+                    "sudo apt install ffmpeg"
+                )
+
+            self._log(msg + "\n")
+            messagebox.showerror("FFmpeg fehlt", msg)
+            return
 
         # deno
         if sys.platform.startswith("win"):
@@ -280,24 +321,36 @@ class App(tk.Tk):
         self._log(f"➤ Qualität: {q}\n")
         self._log(f"➤ Modus: {'Audio (mp3)' if audio_only else 'Video (mp4)'}\n")
         self._log(f"➤ Playlist: {'erlaubt' if allow_playlist else 'blockiert'}\n")
-        self._log(f"➤ Cookies: {'Firefox' if use_cookies else 'aus'}\n\n")
 
-        common_args = [
-            "--js-runtimes", f"deno:{DENO}",
-            "--remote-components", EJS_MODE,
-            "--extractor-args", EXTRACTOR_ARGS,
-            "--retries", "15",
-            "--fragment-retries", "15",
-            "--retry-sleep", "3",
-            "--concurrent-fragments", "1",
-        ]
-
+        cookie_browser = None
         if use_cookies:
-            common_args += ["--cookies-from-browser", "firefox"]
+            cookie_browser = pick_cookie_browser()
+            if cookie_browser:
+                self._log(f"➤ Cookies: {cookie_browser}\n\n")
+            else:
+                self._log("⚠ Cookies aktiviert, aber kein Browser-Profil gefunden (Chrome/Edge/Firefox). -> ohne Cookies.\n\n")
+                use_cookies = False
+        else:
+            self._log("➤ Cookies: aus\n\n")
+
+        def make_common_args(with_cookies: bool) -> list[str]:
+            args = [
+                "--js-runtimes", f"deno:{DENO}",
+                "--remote-components", EJS_MODE,
+                "--extractor-args", EXTRACTOR_ARGS,
+                "--retries", "15",
+                "--fragment-retries", "15",
+                "--retry-sleep", "3",
+                "--concurrent-fragments", "1",
+            ]
+            if with_cookies and cookie_browser:
+                args += ["--cookies-from-browser", cookie_browser]
+            return args
 
         playlist_args = [] if allow_playlist else ["--no-playlist"]
 
-        def run_ytdlp(fmt: str, extra: list[str]) -> int:
+        def run_ytdlp(fmt: str, extra: list[str], with_cookies: bool) -> int:
+            common_args = make_common_args(with_cookies)
             cmd = [YT_DLP] + common_args + playlist_args + ["-f", fmt] + extra + ["-o", outtpl, url]
             self._log("CMD:\n" + " ".join(cmd) + "\n\n")
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
@@ -306,19 +359,30 @@ class App(tk.Tk):
                 self._log(line)
             return proc.wait()
 
-        if audio_only:
-            rc = run_ytdlp("ba/b", ["--extract-audio", "--audio-format", "mp3"])
-        else:
+        def do_download(with_cookies: bool) -> int:
+            if audio_only:
+                return run_ytdlp("ba/b", ["--extract-audio", "--audio-format", "mp3"], with_cookies)
+
             primary = build_format(q)
             fallback = "18"
 
             self._log(f"\n➤ Versuch 1: {primary}\n")
-            rc = run_ytdlp(primary, ["--merge-output-format", "mp4"])
+            rc1 = run_ytdlp(primary, ["--merge-output-format", "mp4"], with_cookies)
 
-            if rc != 0:
-                self._log(f"\n⚠ Versuch 1 fehlgeschlagen (Exit {rc}) → Fallback auf Format 18\n")
+            if rc1 != 0:
+                self._log(f"\n⚠ Versuch 1 fehlgeschlagen (Exit {rc1}) → Fallback auf Format 18\n")
                 self._log(f"➤ Versuch 2: {fallback}\n")
-                rc = run_ytdlp(fallback, ["--merge-output-format", "mp4"])
+                return run_ytdlp(fallback, ["--merge-output-format", "mp4"], with_cookies)
+
+            return rc1
+
+        # 1) normaler Versuch (ggf. mit Cookies)
+        rc = do_download(with_cookies=use_cookies)
+
+        # 2) Wenn Cookies aktiv waren und es scheitert: EINMAL retry ohne Cookies
+        if rc != 0 and use_cookies:
+            self._log("\n⚠ Download fehlgeschlagen mit Cookies → Retry ohne Cookies...\n\n")
+            rc = do_download(with_cookies=False)
 
         if rc == 0:
             self._log(f"\n✔ Fertig! Datei liegt in: {outdir}\n")
